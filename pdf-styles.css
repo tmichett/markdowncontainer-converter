@@ -1,0 +1,77 @@
+/* GitHub markdown styling overrides for better PDF output */
+
+/* Prevent page breaks inside important elements */
+.mermaid,
+pre,
+table,
+figure {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* Control page breaks around diagrams */
+.mermaid {
+  page-break-before: auto;
+  page-break-after: auto;
+  margin: 1.5em 0;
+  padding: 0;
+}
+
+/* Prevent orphan headings at bottom of page */
+h1, h2, h3, h4, h5, h6 {
+  page-break-after: avoid;
+  break-after: avoid;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* Keep heading with at least 2 lines of following content */
+h1, h2, h3 {
+  orphans: 3;
+  widows: 3;
+}
+
+/* Prevent code blocks from breaking awkwardly */
+pre {
+  page-break-inside: avoid;
+  break-inside: avoid;
+  orphans: 3;
+  widows: 3;
+}
+
+/* Better spacing for lists */
+ul, ol {
+  orphans: 2;
+  widows: 2;
+}
+
+/* Ensure reasonable spacing around images/diagrams */
+img, svg {
+  max-width: 100%;
+  height: auto;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* Better control of whitespace */
+p {
+  orphans: 2;
+  widows: 2;
+}
+
+/* Prevent excessive white space after diagrams */
+.mermaid + * {
+  margin-top: 1em;
+}
+
+/* Keep tables together */
+table {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* Better table spacing */
+table {
+  margin: 1em 0;
+}
+

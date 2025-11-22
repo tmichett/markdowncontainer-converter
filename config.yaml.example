@@ -1,0 +1,17 @@
+# Configuration file for markdown-to-pdf converter
+# List all markdown files you want to convert to PDF
+#
+# Each file should be specified with its path relative to the directory
+# where you run the run.sh script. The output PDF will be created in the
+# same location with a .pdf extension instead of .md
+
+files:
+  - path: OLE_CLASSROOM_CONNECTIVITY_ANALYSIS.md
+  - path: RHTLC_COMPLETE_GUIDE.md
+  - path: RHTLC_USER_GUIDE.md
+  - path: RHTLC_SETUP_REQUIREMENTS.md
+  - path: RHTLC_INSTRUCTOR_GUIDE.md
+  # Add more files as needed:
+  # - path: docs/another-guide.md
+  # - path: subdirectory/documentation.md
+

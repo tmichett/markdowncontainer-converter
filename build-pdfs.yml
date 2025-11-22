@@ -1,0 +1,718 @@
+name: Build PDF Documentation
+
+on:
+  push:
+    branches: [ main, python-compiled, tm-pdf-guides ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-pdfs:
+    name: Build PDFs from Markdown
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install PDF generation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            nodejs \
+            npm \
+            chromium-browser \
+            curl \
+            python3-pip
+          
+          # Install md-to-pdf
+          echo "Installing md-to-pdf..."
+          sudo npm install -g md-to-pdf
+          
+          # Install pypdf for adding PDF bookmarks
+          echo "Installing pypdf for PDF bookmarks..."
+          pip3 install pypdf
+          
+          # Verify installations
+          echo ""
+          echo "=== Verifying installations ==="
+          echo "Node.js version:"
+          node --version
+          echo ""
+          echo "NPM version:"
+          npm --version
+          echo ""
+          echo "md-to-pdf version:"
+          md-to-pdf --version || echo "md-to-pdf installed"
+          echo ""
+          echo "Python3 version:"
+          python3 --version
+          echo ""
+          echo "pypdf installed:"
+          python3 -c "import pypdf; print('pypdf version:', pypdf._version.version)" || echo "pypdf installed"
+          echo ""
+          echo "Chromium:"
+          chromium-browser --version 2>/dev/null || chromium --version 2>/dev/null || echo "⚠️  Chromium check failed"
+
+      - name: Create Docs directory and PDF config
+        run: |
+          mkdir -p Docs
+          
+          # Create custom CSS for better PDF pagination
+          cat > pdf-styles.css << 'CSSEOF'
+          /* GitHub markdown styling overrides for better PDF output */
+          
+          /* Prevent page breaks inside important elements */
+          .mermaid,
+          pre,
+          table,
+          figure {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          
+          /* Control page breaks around diagrams */
+          .mermaid {
+            page-break-before: auto;
+            page-break-after: auto;
+            margin: 1.5em 0;
+            padding: 0;
+          }
+          
+          /* Prevent orphan headings at bottom of page */
+          h1, h2, h3, h4, h5, h6 {
+            page-break-after: avoid;
+            break-after: avoid;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          
+          /* Keep heading with at least 2 lines of following content */
+          h1, h2, h3 {
+            orphans: 3;
+            widows: 3;
+          }
+          
+          /* Prevent code blocks from breaking awkwardly */
+          pre {
+            page-break-inside: avoid;
+            break-inside: avoid;
+            orphans: 3;
+            widows: 3;
+          }
+          
+          /* Better spacing for lists */
+          ul, ol {
+            orphans: 2;
+            widows: 2;
+          }
+          
+          /* Ensure reasonable spacing around images/diagrams */
+          img, svg {
+            max-width: 100%;
+            height: auto;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          
+          /* Better control of whitespace */
+          p {
+            orphans: 2;
+            widows: 2;
+          }
+          
+          /* Prevent excessive white space after diagrams */
+          .mermaid + * {
+            margin-top: 1em;
+          }
+          
+          /* Keep tables together */
+          table {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          
+          /* Better table spacing */
+          table {
+            margin: 1em 0;
+          }
+          CSSEOF
+          
+          # Create md-to-pdf config with GitHub styling and Mermaid support
+          cat > .md-to-pdf.json << 'EOF'
+          {
+            "basedir": ".",
+            "stylesheet": [
+              "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown.min.css",
+              "pdf-styles.css"
+            ],
+            "body_class": [
+              "markdown-body"
+            ],
+            "pdf_options": {
+              "format": "A4",
+              "margin": "20mm",
+              "printBackground": true,
+              "preferCSSPageSize": false,
+              "displayHeaderFooter": false,
+              "waitUntil": "networkidle0",
+              "timeout": 60000
+            },
+            "marked_options": {
+              "headerIds": true,
+              "smartypants": true
+            },
+            "stylesheet_encoding": "utf-8",
+            "script": [
+              {
+                "url": "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"
+              },
+              {
+                "path": "mermaid-init.js"
+              }
+            ],
+            "launch_options": {
+              "args": [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu"
+              ],
+              "dumpio": true
+            },
+            "devtools": false
+          }
+          EOF
+          
+          # Create custom script to initialize Mermaid - runs AFTER page load
+          cat > mermaid-init.js << 'EOF'
+          (function() {
+            // Add styles for better Mermaid rendering and page breaks
+            const style = document.createElement('style');
+            style.textContent = `
+              .mermaid {
+                display: flex;
+                justify-content: center;
+                margin: 1.5em auto;
+                padding: 1em 0;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+                page-break-before: auto;
+                page-break-after: auto;
+              }
+              .mermaid svg {
+                max-width: 100%;
+                max-height: 800px;
+                height: auto;
+                page-break-inside: avoid !important;
+              }
+              /* Ensure content after diagram stays close */
+              .mermaid + h1,
+              .mermaid + h2,
+              .mermaid + h3,
+              .mermaid + p {
+                margin-top: 1em;
+                page-break-before: avoid;
+              }
+            `;
+            document.head.appendChild(style);
+            
+            // Wait for everything to be ready
+            function initMermaid() {
+              console.log('[Mermaid Init] Starting initialization...');
+              
+              // Check if Mermaid is loaded
+              if (typeof mermaid === 'undefined') {
+                console.error('[Mermaid Init] ERROR: Mermaid library not loaded!');
+                console.log('[Mermaid Init] Available globals:', Object.keys(window).filter(k => k.toLowerCase().includes('mermaid')));
+                return;
+              }
+              
+              console.log('[Mermaid Init] Mermaid library loaded, version:', mermaid.version || 'unknown');
+              
+              // Find all code blocks
+              const codeBlocks = document.querySelectorAll('pre code.language-mermaid, code.language-mermaid, pre code[class*="mermaid"]');
+              console.log('[Mermaid Init] Found', codeBlocks.length, 'code blocks with mermaid class');
+              
+              if (codeBlocks.length === 0) {
+                console.log('[Mermaid Init] No Mermaid code blocks found. Checking all code blocks...');
+                const allCode = document.querySelectorAll('pre code, code');
+                console.log('[Mermaid Init] Total code blocks:', allCode.length);
+                allCode.forEach((block, i) => {
+                  const classes = block.className;
+                  const text = block.textContent.substring(0, 50);
+                  console.log(`  [${i}] class="${classes}" content="${text}..."`);
+                });
+              }
+              
+              // Convert code blocks to mermaid divs
+              let converted = 0;
+              codeBlocks.forEach(function(codeBlock, index) {
+                try {
+                  const pre = codeBlock.closest('pre') || codeBlock.parentElement;
+                  const mermaidCode = codeBlock.textContent.trim();
+                  
+                  console.log(`[Mermaid Init] Processing block ${index + 1}:`, mermaidCode.substring(0, 50) + '...');
+                  
+                  // Create div for mermaid
+                  const div = document.createElement('div');
+                  div.className = 'mermaid';
+                  div.textContent = mermaidCode;
+                  div.id = 'mermaid-' + index;
+                  
+                  // Replace the pre/code with the div
+                  if (pre && pre.tagName === 'PRE') {
+                    pre.parentNode.replaceChild(div, pre);
+                  } else {
+                    codeBlock.parentNode.replaceChild(div, codeBlock);
+                  }
+                  
+                  converted++;
+                  console.log(`[Mermaid Init] ✓ Converted block ${index + 1}`);
+                } catch (e) {
+                  console.error(`[Mermaid Init] ERROR converting block ${index + 1}:`, e);
+                }
+              });
+              
+              console.log(`[Mermaid Init] Converted ${converted} blocks to mermaid divs`);
+              
+              // Initialize and render Mermaid
+              try {
+                console.log('[Mermaid Init] Initializing Mermaid...');
+                mermaid.initialize({
+                  startOnLoad: false,
+                  theme: 'default',
+                  securityLevel: 'loose',
+                  fontFamily: 'arial, sans-serif',
+                  logLevel: 'debug'
+                });
+                
+                console.log('[Mermaid Init] Running mermaid.run()...');
+                
+                // Get all mermaid divs
+                const mermaidDivs = document.querySelectorAll('.mermaid');
+                console.log('[Mermaid Init] Found', mermaidDivs.length, 'mermaid divs to render');
+                
+                if (mermaidDivs.length > 0) {
+                  mermaid.run({
+                    nodes: mermaidDivs
+                  }).then(() => {
+                    console.log('[Mermaid Init] ✓✓✓ All diagrams rendered successfully!');
+                  }).catch(e => {
+                    console.error('[Mermaid Init] ERROR rendering diagrams:', e);
+                  });
+                }
+              } catch (e) {
+                console.error('[Mermaid Init] ERROR during mermaid initialization:', e);
+              }
+            }
+            
+            // Try multiple approaches to ensure it runs
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', initMermaid);
+            } else {
+              // DOM already loaded
+              initMermaid();
+            }
+            
+            // Also try after a short delay as fallback
+            setTimeout(initMermaid, 500);
+          })();
+          EOF
+          
+          echo "Created .md-to-pdf.json configuration"
+          cat .md-to-pdf.json
+          
+          # Create Python script to add PDF bookmarks
+          cat > add_pdf_bookmarks.py << 'PYEOF'
+          #!/usr/bin/env python3
+          """
+          Add PDF bookmarks (outlines) based on markdown headings.
+          This creates the navigation sidebar in PDF readers.
+          """
+          import sys
+          import re
+          from pypdf import PdfReader, PdfWriter
+          
+          def extract_headings_from_markdown(md_file):
+              """Extract headings from markdown file."""
+              headings = []
+              with open(md_file, 'r', encoding='utf-8') as f:
+                  lines = f.readlines()
+              
+              for line_num, line in enumerate(lines, 1):
+                  # Match markdown headings (# ## ### etc.)
+                  match = re.match(r'^(#{1,6})\s+(.+)$', line.strip())
+                  if match:
+                      level = len(match.group(1))  # Number of # symbols
+                      title = match.group(2).strip()
+                      # Remove markdown formatting from title
+                      title = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', title)  # Remove links
+                      title = re.sub(r'[*_`]', '', title)  # Remove emphasis
+                      headings.append({
+                          'level': level,
+                          'title': title,
+                          'line': line_num
+                      })
+              
+              return headings
+          
+          def add_bookmarks_to_pdf(pdf_path, headings):
+              """Add bookmarks to existing PDF."""
+              try:
+                  reader = PdfReader(pdf_path)
+                  writer = PdfWriter()
+                  
+                  # Copy all pages
+                  for page in reader.pages:
+                      writer.add_page(page)
+                  
+                  # Estimate page numbers (rough calculation)
+                  # Assume ~50 lines per page for markdown content
+                  total_pages = len(reader.pages)
+                  
+                  # Add bookmarks
+                  bookmark_stack = [None] * 7  # Support up to 6 levels of headings
+                  
+                  for heading in headings:
+                      level = heading['level']
+                      title = heading['title']
+                      
+                      # Estimate which page this heading is on
+                      # This is approximate - PDFs don't preserve line numbers
+                      estimated_page = min(int((heading['line'] / 50.0)), total_pages - 1)
+                      estimated_page = max(0, estimated_page)
+                      
+                      # Add bookmark
+                      parent = bookmark_stack[level - 1] if level > 1 else None
+                      
+                      bookmark = writer.add_outline_item(
+                          title=title,
+                          page_number=estimated_page,
+                          parent=parent
+                      )
+                      
+                      # Store this bookmark for potential children
+                      bookmark_stack[level] = bookmark
+                      # Clear any deeper level bookmarks
+                      for i in range(level + 1, 7):
+                          bookmark_stack[i] = None
+                  
+                  # Write the updated PDF
+                  with open(pdf_path, 'wb') as output_file:
+                      writer.write(output_file)
+                  
+                  print(f"✅ Added {len(headings)} bookmarks to {pdf_path}")
+                  return True
+                  
+              except Exception as e:
+                  print(f"❌ Error adding bookmarks to {pdf_path}: {e}")
+                  return False
+          
+          if __name__ == '__main__':
+              if len(sys.argv) != 3:
+                  print("Usage: add_pdf_bookmarks.py <markdown_file> <pdf_file>")
+                  sys.exit(1)
+              
+              md_file = sys.argv[1]
+              pdf_file = sys.argv[2]
+              
+              print(f"Processing {md_file} -> {pdf_file}")
+              
+              # Extract headings from markdown
+              headings = extract_headings_from_markdown(md_file)
+              print(f"Found {len(headings)} headings")
+              
+              for h in headings[:5]:  # Show first 5
+                  indent = "  " * (h['level'] - 1)
+                  print(f"  {indent}{'#' * h['level']} {h['title']}")
+              
+              if len(headings) > 5:
+                  print(f"  ... and {len(headings) - 5} more")
+              
+              # Add bookmarks to PDF
+              if headings:
+                  success = add_bookmarks_to_pdf(pdf_file, headings)
+                  sys.exit(0 if success else 1)
+              else:
+                  print("⚠️  No headings found, skipping bookmark generation")
+                  sys.exit(0)
+          PYEOF
+          
+          chmod +x add_pdf_bookmarks.py
+          echo "Created add_pdf_bookmarks.py script"
+
+      - name: Build PDFs with md-to-pdf (Native Mermaid Support)
+        env:
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+          PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium-browser"
+        run: |
+          # List of markdown files to convert
+          declare -a files=(
+            "OLE_CLASSROOM_CONNECTIVITY_ANALYSIS.md"
+            "RHTLC_COMPLETE_GUIDE.md"
+            "RHTLC_USER_GUIDE.md"
+            "RHTLC_SETUP_REQUIREMENTS.md"
+            "RHTLC_INSTRUCTOR_GUIDE.md"
+          )
+          
+          # Track build status
+          failed_builds=()
+          successful_builds=()
+          
+          echo "🚀 Starting PDF generation with md-to-pdf (built-in Mermaid support)"
+          echo ""
+          
+          for file in "${files[@]}"; do
+            if [ -f "$file" ]; then
+              echo "📄 Processing $file..."
+              basename=$(basename "$file" .md)
+              temp_pdf="${basename}.pdf"
+              output_pdf="Docs/${basename}.pdf"
+              
+              # Use md-to-pdf with Mermaid.js support
+              # Note: md-to-pdf creates PDF in same directory as input file
+              
+              # Show Mermaid blocks in the markdown (for debugging)
+              echo "Checking for Mermaid blocks in $file..."
+              mermaid_count=$(grep -c '```mermaid' "$file" || echo "0")
+              echo "Found $mermaid_count Mermaid diagram(s)"
+              
+              set +e  # Don't exit on error
+              md_to_pdf_output=$(md-to-pdf "$file" \
+                --config-file .md-to-pdf.json \
+                2>&1)
+              exit_code=$?
+              set -e
+              
+              # Show conversion output (includes console.log from our script)
+              echo "Conversion output:"
+              echo "$md_to_pdf_output"
+              
+              # Move the generated PDF to Docs directory
+              if [ $exit_code -eq 0 ] && [ -f "$temp_pdf" ]; then
+                mv "$temp_pdf" "$output_pdf"
+                file_size_before=$(du -h "$output_pdf" | cut -f1)
+                echo "✅ Successfully created $output_pdf ($file_size_before)"
+                
+                # Add PDF bookmarks from markdown headings
+                echo "Adding PDF bookmarks for navigation..."
+                python3 add_pdf_bookmarks.py "$file" "$output_pdf"
+                
+                file_size_after=$(du -h "$output_pdf" | cut -f1)
+                echo "📑 PDF with bookmarks: $output_pdf ($file_size_after)"
+                
+                successful_builds+=("$basename.pdf")
+              else
+                echo "❌ Failed to create PDF for $file"
+                echo "Error output:"
+                echo "$md_to_pdf_output" | tail -30
+                failed_builds+=("$file")
+              fi
+              echo ""
+            else
+              echo "⚠️  Warning: $file not found, skipping..."
+              failed_builds+=("$file (not found)")
+              echo ""
+            fi
+          done
+          
+          # Summary
+          echo ""
+          echo "=== Build Summary ==="
+          echo ""
+          echo "Successful: ${#successful_builds[@]}"
+          for pdf in "${successful_builds[@]}"; do
+            echo "  ✅ $pdf"
+          done
+          echo ""
+          echo "Failed: ${#failed_builds[@]}"
+          for file in "${failed_builds[@]}"; do
+            echo "  ❌ $file"
+          done
+          echo ""
+          
+          # List generated PDFs
+          echo "Generated PDFs:"
+          ls -lh Docs/*.pdf 2>/dev/null || echo "No PDFs generated"
+          echo ""
+          
+          # Fail if no PDFs were generated
+          if [ ${#successful_builds[@]} -eq 0 ]; then
+            echo "❌ ERROR: No PDFs were successfully generated!"
+            exit 1
+          fi
+          
+          # Warn if some failed
+          if [ ${#failed_builds[@]} -gt 0 ]; then
+            echo "⚠️  WARNING: Some PDFs failed to build, but continuing with successful ones"
+          else
+            echo "🎉 All PDFs built successfully!"
+          fi
+
+      - name: Upload PDFs as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-pdfs
+          path: Docs/*.pdf
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Post PR comment with PDF links
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = context.runId;
+            const repo = context.repo;
+            const pr = context.payload.pull_request;
+            
+            // Wait a moment for artifacts to be fully processed
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // List artifacts for this run
+            let artifacts;
+            try {
+              artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner: repo.owner,
+                repo: repo.repo,
+                run_id: runId,
+              });
+            } catch (error) {
+              console.error('Error fetching artifacts:', error);
+              core.setFailed('Failed to fetch artifacts');
+              return;
+            }
+            
+            // Find the documentation-pdfs artifact
+            const pdfArtifact = artifacts.data.artifacts.find(a => a.name === 'documentation-pdfs');
+            
+            if (!pdfArtifact) {
+              console.log('No PDF artifact found');
+              return;
+            }
+            
+            // Build comment body
+            const pdfFiles = [
+              { name: 'OLE_CLASSROOM_CONNECTIVITY_ANALYSIS.pdf', label: 'OLE Classroom Connectivity Analysis' },
+              { name: 'RHTLC_COMPLETE_GUIDE.pdf', label: 'RHTLC Complete Guide' },
+              { name: 'RHTLC_USER_GUIDE.pdf', label: 'RHTLC User Guide' },
+              { name: 'RHTLC_SETUP_REQUIREMENTS.pdf', label: 'RHTLC Setup Requirements' },
+              { name: 'RHTLC_INSTRUCTOR_GUIDE.pdf', label: 'RHTLC Instructor Setup Guide' },
+            ];
+            
+            const downloadUrl = `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${runId}/artifacts/${pdfArtifact.id}`;
+            const size = (pdfArtifact.size_in_bytes / 1024 / 1024).toFixed(2);
+            
+            const commentBody = [
+              '## 📄 PDF Documentation Build Complete!',
+              '',
+              '**Build Status:** ✅ PDFs generated successfully',
+              '',
+              `**Commit:** ${context.payload.pull_request.head.sha.substring(0, 7)}`,
+              `**Workflow Run:** [#${runId}](https://github.com/${repo.owner}/${repo.repo}/actions/runs/${runId})`,
+              '',
+              '---',
+              '',
+              '### 📦 Download PDFs',
+              '',
+              `**Artifact:** [documentation-pdfs](${downloadUrl}) (${size} MB)`,
+              '',
+              'The artifact contains the following PDF files:',
+              '',
+              pdfFiles.map(pdf => `- 📄 **${pdf.label}** (\`${pdf.name}\`)`).join('\n'),
+              '',
+              '---',
+              '',
+              '### 📝 Notes',
+              '',
+              '- **Artifacts expire in 30 days**',
+              '- Click the artifact link above to download all PDFs as a ZIP file',
+              '- Extract the ZIP to access individual PDF files',
+              '- These PDFs will be committed to the repository on merge',
+              '',
+              '---',
+              '',
+              '<sub>🤖 This comment is automatically updated each time the workflow runs</sub>'
+            ].join('\n');
+            
+            // Find existing comment from this bot
+            let comments;
+            try {
+              comments = await github.rest.issues.listComments({
+                owner: repo.owner,
+                repo: repo.repo,
+                issue_number: pr.number,
+              });
+            } catch (error) {
+              console.error('Error listing comments:', error);
+              core.setFailed('Failed to list comments');
+              return;
+            }
+            
+            const botComment = comments.data.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('PDF Documentation Build Complete')
+            );
+            
+            // Update existing comment or create new one
+            try {
+              if (botComment) {
+                await github.rest.issues.updateComment({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  comment_id: botComment.id,
+                  body: commentBody
+                });
+                console.log('✅ Updated existing comment');
+              } else {
+                await github.rest.issues.createComment({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  issue_number: pr.number,
+                  body: commentBody
+                });
+                console.log('✅ Created new comment');
+              }
+            } catch (error) {
+              console.error('Error posting comment:', error);
+              core.setFailed('Failed to post/update comment');
+              return;
+            }
+
+      - name: Commit PDFs to repository (on merge)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/python-compiled') && !contains(github.event.head_commit.message, '[skip ci]')
+        run: |
+          # Configure git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Set up remote URL with token for authentication
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          
+          # Check if there are any PDFs to commit
+          if [ -n "$(ls -A Docs/*.pdf 2>/dev/null)" ]; then
+            # Add PDFs
+            git add Docs/*.pdf
+            
+            # Check if there are changes to commit
+            if git diff --staged --quiet; then
+              echo "No changes to commit (PDFs already up to date)"
+            else
+              # Commit the PDFs
+              git commit -m "docs: Update PDF documentation [skip ci]"
+              
+              # Push the changes
+              git push origin HEAD:${{ github.ref }}
+              echo "✅ PDFs committed and pushed to repository"
+            fi
+          else
+            echo "⚠️  No PDFs found to commit"
+          fi
+
