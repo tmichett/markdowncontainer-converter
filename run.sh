@@ -5,9 +5,24 @@ set -e
 
 # Default values
 CONFIG_FILE="${CONFIG_FILE:-config.yaml}"
-IMAGE_NAME="${IMAGE_NAME:-markdown-to-pdf}"
+IMAGE_NAME="${IMAGE_NAME:-md2pdf}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-FULL_IMAGE_NAME="${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Detect GitHub username from git remote or use environment variable
+if [ -z "$GITHUB_USER" ]; then
+    GITHUB_USER=$(git remote get-url origin 2>/dev/null | sed -E 's/.*github.com[\/:]([^\/]+)\/.*/\1/' || echo "")
+fi
+
+# Determine which image to use
+# Priority: 1) GHCR if GITHUB_USER set and USE_GHCR not false, 2) Local image
+# Allow override to force local-only mode
+if [ "${USE_GHCR:-true}" != "false" ] && [ -n "$GITHUB_USER" ]; then
+    FULL_IMAGE_NAME="ghcr.io/${GITHUB_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
+    USE_GHCR=true
+else
+    FULL_IMAGE_NAME="${IMAGE_NAME}:${IMAGE_TAG}"
+    USE_GHCR=false
+fi
 
 # Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -23,13 +38,38 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-# Check if container image exists
+# Check if container image exists, pull from GHCR if needed
 if ! podman image exists "$FULL_IMAGE_NAME" 2>/dev/null; then
-    echo "⚠️  Container image '$FULL_IMAGE_NAME' not found"
-    echo "Building container image..."
-    echo ""
-    ./build.sh
-    echo ""
+    if [ "$USE_GHCR" = true ]; then
+        echo "⚠️  Container image '$FULL_IMAGE_NAME' not found locally"
+        echo "Attempting to pull from GitHub Container Registry..."
+        echo ""
+        
+        # Try to pull from GHCR
+        if podman pull "$FULL_IMAGE_NAME" 2>/dev/null; then
+            echo "✅ Successfully pulled image from GitHub Container Registry"
+            echo ""
+        else
+            echo "❌ Failed to pull image from GitHub Container Registry"
+            echo ""
+            echo "The image may not exist yet. You can:"
+            echo "  1. Build and push the image:"
+            echo "     ./build.sh && ./push.sh"
+            echo ""
+            echo "  2. Build locally only:"
+            echo "     USE_GHCR=false ./run.sh"
+            echo ""
+            echo "  3. Use a different image:"
+            echo "     IMAGE_NAME=your-image GITHUB_USER=your-user ./run.sh"
+            exit 1
+        fi
+    else
+        echo "⚠️  Container image '$FULL_IMAGE_NAME' not found"
+        echo "Building container image locally..."
+        echo ""
+        ./build.sh
+        echo ""
+    fi
 fi
 
 # Check if yq is available (for parsing YAML)

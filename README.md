@@ -24,9 +24,29 @@ A containerized solution for converting Markdown files to PDF with support for M
 ./build.sh
 ```
 
-This will build a container image named `markdown-to-pdf:latest` using Podman.
+This will build a container image named `md2pdf:latest` using Podman. If your git remote is configured with GitHub, it will also tag the image for GitHub Container Registry (ghcr.io).
 
-### 2. Create Configuration File
+### 2. (Optional) Push to GitHub Container Registry
+
+If you want to publish the container image to GitHub Container Registry:
+
+```bash
+./push.sh
+```
+
+This will:
+- Authenticate with GitHub Container Registry (if needed)
+- Push the image to `ghcr.io/YOUR_USERNAME/md2pdf:latest`
+- Make it available for others to use
+
+**Note**: You'll need a GitHub Personal Access Token with `write:packages` permission. Set it as:
+```bash
+export GITHUB_TOKEN=your-token
+```
+
+Or login interactively when prompted.
+
+### 3. Create Configuration File
 
 Copy the example configuration file:
 
@@ -42,7 +62,7 @@ files:
   - path: another/file.md
 ```
 
-### 3. Run the Converter
+### 4. Run the Converter
 
 ```bash
 ./run.sh
@@ -86,14 +106,30 @@ You can also specify a different config file:
 CONFIG_FILE=my-config.yaml ./run.sh
 ```
 
+**GitHub Container Registry**:
+- The scripts automatically detect your GitHub username from git remote
+- Or set `GITHUB_USER` environment variable
+- To use local-only mode (skip GHCR): `USE_GHCR=false ./run.sh`
+- To use a different GitHub user: `GITHUB_USER=other-user ./run.sh`
+
 ## Manual Usage
 
 You can also run the container manually:
 
+**Using local image:**
 ```bash
 podman run --rm \
   -v $(pwd):/workspace:Z \
-  markdown-to-pdf:latest \
+  md2pdf:latest \
+  /workspace/input.md \
+  /workspace/output.pdf
+```
+
+**Using GitHub Container Registry image:**
+```bash
+podman run --rm \
+  -v $(pwd):/workspace:Z \
+  ghcr.io/YOUR_USERNAME/md2pdf:latest \
   /workspace/input.md \
   /workspace/output.pdf
 ```
@@ -119,6 +155,7 @@ podman run --rm \
 
 - `Containerfile` - Container definition
 - `build.sh` - Script to build the container with Podman
+- `push.sh` - Script to push container to GitHub Container Registry
 - `run.sh` - Script to process markdown files from config.yaml
 - `entrypoint.sh` - Container entrypoint script
 - `config.yaml.example` - Example configuration file
@@ -165,6 +202,26 @@ Ensure that:
 - The paths in `config.yaml` are relative to where you run `run.sh`
 - The markdown files actually exist at those paths
 - You have read permissions for the markdown files
+
+### GitHub Container Registry issues
+
+**Problem**: Cannot pull image from GHCR
+- **Solution**: 
+  - Ensure the image has been pushed: `./push.sh`
+  - Check that `GITHUB_USER` is set correctly
+  - Verify the image exists at: `https://github.com/YOUR_USERNAME?tab=packages`
+  - Try pulling manually: `podman pull ghcr.io/YOUR_USERNAME/md2pdf:latest`
+
+**Problem**: Authentication failed when pushing
+- **Solution**:
+  - Create a GitHub Personal Access Token with `write:packages` permission
+  - Set it as: `export GITHUB_TOKEN=your-token`
+  - Or login interactively: `podman login ghcr.io`
+
+**Problem**: Script can't detect GitHub username
+- **Solution**:
+  - Set it manually: `export GITHUB_USER=your-username`
+  - Or ensure git remote is configured: `git remote get-url origin`
 
 ## Documentation
 
