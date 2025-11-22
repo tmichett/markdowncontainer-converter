@@ -64,9 +64,12 @@ The configuration file uses YAML format:
 files:
   - path: relative/path/to/file.md
   - path: another/file.md
+  - path: /absolute/path/to/file.md
 ```
 
-Paths are relative to the directory where you run `run.sh`.
+Paths can be:
+- **Relative** - Relative to the directory where you run `run.sh`
+- **Absolute** - Full system paths (e.g., `/Users/username/project/file.md`)
 
 ### Environment Variables
 
@@ -162,6 +165,10 @@ Ensure that:
 - The paths in `config.yaml` are relative to where you run `run.sh`
 - The markdown files actually exist at those paths
 - You have read permissions for the markdown files
+
+## Documentation
+
+For detailed documentation on the container architecture, build process, and advanced usage, see [CONTAINER_DOCUMENTATION.md](CONTAINER_DOCUMENTATION.md).
 
 ## Based On
 
