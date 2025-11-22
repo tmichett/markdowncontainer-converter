@@ -56,8 +56,13 @@ if [ ! -f "$TEMP_PDF" ]; then
     exit 1
 fi
 
-# Move to output location
-mv "$TEMP_PDF" "$OUTPUT_FILE"
+# Move to output location (only if different)
+if [ "$TEMP_PDF" != "$OUTPUT_FILE" ]; then
+    mv "$TEMP_PDF" "$OUTPUT_FILE"
+else
+    echo "PDF already at target location: $OUTPUT_FILE"
+fi
+
 file_size=$(du -h "$OUTPUT_FILE" | cut -f1)
 echo "✅ Successfully created $OUTPUT_FILE ($file_size)"
 

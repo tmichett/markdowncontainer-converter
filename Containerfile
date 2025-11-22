@@ -18,7 +18,11 @@ RUN apt-get update && \
         python3 \
         python3-pip \
         ca-certificates \
+        fontconfig \
         fonts-liberation \
+        fonts-noto-color-emoji \
+        fonts-noto-core \
+        fonts-noto-ui-core \
         libatk-bridge2.0-0 \
         libatk1.0-0 \
         libc6 \
@@ -54,7 +58,10 @@ RUN apt-get update && \
         && \
     (apt-get install -y libasound2t64 2>/dev/null || apt-get install -y libasound2 2>/dev/null || true) && \
     (apt-get install -y libgcc-s1 2>/dev/null || apt-get install -y libgcc1 2>/dev/null || true) && \
-    rm -rf /var/lib/apt/lists/*
+    (apt-get install -y fonts-emoji-one 2>/dev/null || true) && \
+    (apt-get install -y fonts-symbola 2>/dev/null || true) && \
+    rm -rf /var/lib/apt/lists/* && \
+    fc-cache -f -v
 
 # Install md-to-pdf globally
 # Let Puppeteer download Chromium automatically (removes need for system Chromium)

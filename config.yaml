@@ -1,0 +1,5 @@
+files:
+  - path: /Users/travis/Github/dle-wstunnel-ole/RHTLC_INSTRUCTOR_GUIDE.md
+  - path: /Users/travis/Github/dle-wstunnel-ole/RHTLC_USER_GUIDE.md
+  - path: /Users/travis/Github/dle-wstunnel-ole/OLE_CLASSROOM_CONNECTIVITY_ANALYSIS.md
+  - path: /Users/travis/Github/MarkdownConverter/example.md

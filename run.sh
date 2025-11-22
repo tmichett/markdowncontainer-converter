@@ -47,6 +47,42 @@ echo ""
 failed_builds=()
 successful_builds=()
 
+# Function to determine mount point and adjust paths
+determine_mount() {
+    local file_path="$1"
+    
+    # Check if path is absolute
+    if [[ "$file_path" = /* ]]; then
+        # Absolute path - find a suitable mount point
+        # Try to find common parent (like /Users, /home, etc.)
+        if [[ "$file_path" = /Users/* ]]; then
+            echo "/Users"
+        elif [[ "$file_path" = /home/* ]]; then
+            echo "/home"
+        else
+            # Use root as fallback (less ideal but works)
+            echo "/"
+        fi
+    else
+        # Relative path - use current directory
+        echo "$(pwd)"
+    fi
+}
+
+# Function to convert absolute path to container path
+to_container_path() {
+    local file_path="$1"
+    local mount_point="$2"
+    
+    if [[ "$file_path" = /* ]]; then
+        # Absolute path - use as-is (mounted at root)
+        echo "$file_path"
+    else
+        # Relative path - prepend /workspace
+        echo "/workspace/$file_path"
+    fi
+}
+
 # Parse config file and process each markdown file
 if [ "$USE_YQ" = true ]; then
     # Use yq to parse YAML
@@ -72,17 +108,44 @@ if [ "$USE_YQ" = true ]; then
         fi
         
         # Generate output PDF path (same location, .pdf extension)
-        output_pdf="${file_path%.md}.pdf"
-        output_pdf="${output_pdf%.MD}.pdf"
+        # Remove any existing .pdf extension first, then remove .md/.MD, then add .pdf
+        output_pdf="${file_path%.pdf}"  # Remove .pdf if present
+        output_pdf="${output_pdf%.md}"   # Remove .md
+        output_pdf="${output_pdf%.MD}"  # Remove .MD
+        output_pdf="${output_pdf}.pdf"   # Add .pdf
+        
+        # Determine mount point
+        if [[ "$file_path" = /* ]]; then
+            # Absolute path - mount parent directory
+            if [[ "$file_path" = /Users/* ]]; then
+                MOUNT_POINT="/Users"
+                CONTAINER_INPUT="$file_path"
+                CONTAINER_OUTPUT="$output_pdf"
+            elif [[ "$file_path" = /home/* ]]; then
+                MOUNT_POINT="/home"
+                CONTAINER_INPUT="$file_path"
+                CONTAINER_OUTPUT="$output_pdf"
+            else
+                # Fallback: mount root (requires root access, not ideal)
+                MOUNT_POINT="/"
+                CONTAINER_INPUT="$file_path"
+                CONTAINER_OUTPUT="$output_pdf"
+            fi
+        else
+            # Relative path - mount current directory
+            MOUNT_POINT="$(pwd)"
+            CONTAINER_INPUT="/workspace/$file_path"
+            CONTAINER_OUTPUT="/workspace/$output_pdf"
+        fi
         
         echo "📄 Processing $file_path -> $output_pdf"
         
         # Run container to convert markdown to PDF
         if podman run --rm \
-            -v "$(pwd):/workspace:Z" \
+            -v "$MOUNT_POINT:$MOUNT_POINT:Z" \
             "$FULL_IMAGE_NAME" \
-            "/workspace/$file_path" \
-            "/workspace/$output_pdf"; then
+            "$CONTAINER_INPUT" \
+            "$CONTAINER_OUTPUT"; then
             echo "✅ Successfully created $output_pdf"
             successful_builds+=("$output_pdf")
         else
@@ -112,17 +175,44 @@ else
             fi
             
             # Generate output PDF path (same location, .pdf extension)
-            output_pdf="${file_path%.md}.pdf"
-            output_pdf="${output_pdf%.MD}.pdf"
+            # Remove any existing .pdf extension first, then remove .md/.MD, then add .pdf
+            output_pdf="${file_path%.pdf}"  # Remove .pdf if present
+            output_pdf="${output_pdf%.md}"   # Remove .md
+            output_pdf="${output_pdf%.MD}"  # Remove .MD
+            output_pdf="${output_pdf}.pdf"   # Add .pdf
+            
+            # Determine mount point
+            if [[ "$file_path" = /* ]]; then
+                # Absolute path - mount parent directory
+                if [[ "$file_path" = /Users/* ]]; then
+                    MOUNT_POINT="/Users"
+                    CONTAINER_INPUT="$file_path"
+                    CONTAINER_OUTPUT="$output_pdf"
+                elif [[ "$file_path" = /home/* ]]; then
+                    MOUNT_POINT="/home"
+                    CONTAINER_INPUT="$file_path"
+                    CONTAINER_OUTPUT="$output_pdf"
+                else
+                    # Fallback: mount root (requires root access, not ideal)
+                    MOUNT_POINT="/"
+                    CONTAINER_INPUT="$file_path"
+                    CONTAINER_OUTPUT="$output_pdf"
+                fi
+            else
+                # Relative path - mount current directory
+                MOUNT_POINT="$(pwd)"
+                CONTAINER_INPUT="/workspace/$file_path"
+                CONTAINER_OUTPUT="/workspace/$output_pdf"
+            fi
             
             echo "📄 Processing $file_path -> $output_pdf"
             
             # Run container to convert markdown to PDF
             if podman run --rm \
-                -v "$(pwd):/workspace:Z" \
+                -v "$MOUNT_POINT:$MOUNT_POINT:Z" \
                 "$FULL_IMAGE_NAME" \
-                "/workspace/$file_path" \
-                "/workspace/$output_pdf"; then
+                "$CONTAINER_INPUT" \
+                "$CONTAINER_OUTPUT"; then
                 echo "✅ Successfully created $output_pdf"
                 successful_builds+=("$output_pdf")
             else
